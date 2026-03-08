@@ -65,6 +65,7 @@ export interface User {
   email: string;
   username: string;
   full_name: string;
+  mobile?: string;
   role: string;
   is_active: boolean;
   is_superuser: boolean;

@@ -22,6 +22,7 @@ import VerifyOTP from '@pages/auth/VerifyOTP';
 // Protected Pages
 import Dashboard from '@pages/dashboard';
 import ProtectedRoute from '@shared/components/ProtectedRoute';
+import { Profile } from '@pages/profile';
 
 // Player Pages
 import { PlayerList, CreatePlayer, EditPlayer } from '@pages/players';
@@ -81,6 +82,16 @@ function App() {
           element={
             <ProtectedRoute>
               <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Profile Route */}
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Profile />
             </ProtectedRoute>
           }
         />
