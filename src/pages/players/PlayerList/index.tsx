@@ -30,8 +30,7 @@ export const PlayerList = () => {
       } else if (filter === 'sold') {
         return await playerService.getSoldPlayers();
       } else {
-        const response = await playerService.getPlayers(0, 100);
-        return response.items;
+        return await playerService.getPlayers(0, 100);
       }
     },
     onError: (error) => {

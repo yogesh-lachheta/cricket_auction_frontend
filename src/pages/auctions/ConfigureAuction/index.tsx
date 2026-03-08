@@ -21,7 +21,7 @@ export const ConfigureAuction = () => {
       setLoading(true);
       const [auctionData, playersData] = await Promise.all([
         auctionService.getAuctionById(Number(id)),
-        playerService.getAvailablePlayers(),
+        playerService.getAvailablePlayers(Number(id)),
       ]);
       setAuction(auctionData);
       setAvailablePlayers(playersData);
@@ -117,7 +117,7 @@ export const ConfigureAuction = () => {
       toast.success('Current player updated!');
 
       // Refresh available players
-      const playersData = await playerService.getAvailablePlayers();
+      const playersData = await playerService.getAvailablePlayers(Number(id));
       setAvailablePlayers(playersData);
     } catch (error) {
       console.error('Error setting current player:', error);

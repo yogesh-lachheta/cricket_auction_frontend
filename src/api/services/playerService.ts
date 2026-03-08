@@ -8,8 +8,8 @@ import type {
 
 export const playerService = {
   // Get all players with pagination
-  getPlayers: async (skip = 0, limit = 100): Promise<PaginatedResponse<Player>> => {
-    const response = await axiosInstance.get<PaginatedResponse<Player>>(
+  getPlayers: async (skip = 0, limit = 100): Promise<Player[]> => {
+    const response = await axiosInstance.get<Player[]>(
       `/players?skip=${skip}&limit=${limit}`
     );
     return response.data;
@@ -39,14 +39,18 @@ export const playerService = {
   },
 
   // Get available players (not sold)
-  getAvailablePlayers: async (): Promise<Player[]> => {
-    const response = await axiosInstance.get<Player[]>('/players/available');
+  getAvailablePlayers: async (auctionId?: number): Promise<Player[]> => {
+    const params = new URLSearchParams({ status: 'available' });
+    if (auctionId) params.append('auction_id', auctionId.toString());
+    const response = await axiosInstance.get<Player[]>(`/players?${params.toString()}`);
     return response.data;
   },
 
   // Get sold players
-  getSoldPlayers: async (): Promise<Player[]> => {
-    const response = await axiosInstance.get<Player[]>('/players/sold');
+  getSoldPlayers: async (auctionId?: number): Promise<Player[]> => {
+    const params = new URLSearchParams({ status: 'sold' });
+    if (auctionId) params.append('auction_id', auctionId.toString());
+    const response = await axiosInstance.get<Player[]>(`/players?${params.toString()}`);
     return response.data;
   },
 };
