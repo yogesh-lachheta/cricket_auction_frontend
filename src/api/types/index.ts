@@ -160,29 +160,43 @@ export interface UpdateTeamRequest {
 // Auction types
 export interface Auction {
   id: number;
-  name: string;
+  title: string;
+  description?: string;
   start_time: string;
   end_time?: string;
-  status: 'pending' | 'active' | 'paused' | 'completed';
+  status: 'upcoming' | 'live' | 'completed' | 'cancelled';
+  total_budget_per_team: number;
+  max_teams: number;
+  max_players_per_team: number;
   current_player_id?: number;
   current_player?: Player;
   created_by: number;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }
 
 export interface CreateAuctionRequest {
-  name: string;
-  start_time: string;
+  title: string;
+  description?: string;
+  total_budget_per_team: number;
+  max_teams?: number;
+  max_players_per_team?: number;
+  start_time?: string;
   end_time?: string;
 }
 
 export interface UpdateAuctionRequest {
-  name?: string;
+  title?: string;
+  description?: string;
+  total_budget_per_team?: number;
+  max_teams?: number;
+  max_players_per_team?: number;
   start_time?: string;
   end_time?: string;
-  status?: 'pending' | 'active' | 'paused' | 'completed';
+  status?: 'upcoming' | 'live' | 'completed' | 'cancelled';
   current_player_id?: number;
+  is_active?: boolean;
 }
 
 // Bid types

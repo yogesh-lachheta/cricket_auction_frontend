@@ -8,8 +8,8 @@ import type {
 
 export const auctionService = {
   // Get all auctions with pagination
-  getAuctions: async (skip = 0, limit = 100): Promise<PaginatedResponse<Auction>> => {
-    const response = await axiosInstance.get<PaginatedResponse<Auction>>(
+  getAuctions: async (skip = 0, limit = 100): Promise<Auction[]> => {
+    const response = await axiosInstance.get<Auction[]>(
       `/auctions?skip=${skip}&limit=${limit}`
     );
     return response.data;

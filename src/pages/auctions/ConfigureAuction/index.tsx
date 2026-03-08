@@ -175,7 +175,7 @@ export const ConfigureAuction = () => {
       <div className="bg-card border border-border rounded-lg p-6 mb-6">
         <div className="flex justify-between items-start mb-4">
           <div>
-            <h1 className="text-3xl font-bold mb-2">{auction.name}</h1>
+            <h1 className="text-3xl font-bold mb-2">{auction.title}</h1>
             <p className="text-muted-foreground">Auction Configuration & Control</p>
           </div>
           <Badge variant={statusColors[auction.status]}>

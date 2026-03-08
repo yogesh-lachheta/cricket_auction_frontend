@@ -31,7 +31,7 @@ import { PlayerList, CreatePlayer, EditPlayer } from '@pages/players';
 import { TeamList, CreateTeam, EditTeam, ViewTeam } from '@pages/teams';
 
 // Auction Pages
-import { AuctionList, CreateAuction, ConfigureAuction, LiveBidding } from '@pages/auctions';
+import { AuctionList, CreateAuction, ConfigureAuction, LiveBidding, AdminControl } from '@pages/auctions';
 
 function App() {
   const { isAuthenticated } = useAppSelector((state) => state.auth);
@@ -186,6 +186,14 @@ function App() {
           element={
             <ProtectedRoute>
               <LiveBidding />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/auctions/:id/admin"
+          element={
+            <ProtectedRoute requiredRoles={['admin', 'auctioneer']}>
+              <AdminControl />
             </ProtectedRoute>
           }
         />

@@ -17,20 +17,21 @@ import {
   CheckCircle,
   Pause,
   Calendar,
+  Shield,
 } from 'lucide-react';
 
 const statusColors: Record<string, 'default' | 'secondary' | 'success' | 'warning'> = {
-  pending: 'secondary',
-  active: 'success',
-  paused: 'warning',
+  upcoming: 'secondary',
+  live: 'success',
   completed: 'default',
+  cancelled: 'warning',
 };
 
 const statusIcons: Record<string, React.ElementType> = {
-  pending: Clock,
-  active: Play,
-  paused: Pause,
+  upcoming: Clock,
+  live: Play,
   completed: CheckCircle,
+  cancelled: Pause,
 };
 
 export const AuctionList = () => {
@@ -43,7 +44,7 @@ export const AuctionList = () => {
     queryKey: ['auctions'],
     queryFn: async () => {
       const response = await auctionService.getAuctions(0, 100);
-      return response.items;
+      return response;
     },
     onError: (error) => {
       console.error('Error fetching auctions:', error);
@@ -115,7 +116,7 @@ export const AuctionList = () => {
                 >
                   <div className="flex justify-between items-start mb-4">
                     <h3 className="text-xl font-semibold text-text-main flex-1">
-                      {auction.name}
+                      {auction.title}
                     </h3>
                     <Badge variant={statusColors[auction.status] || 'default'}>
                       <StatusIcon className="w-3 h-3 mr-1" />
@@ -159,22 +160,34 @@ export const AuctionList = () => {
 
                   <div className="flex gap-2">
                     {auction.status === 'active' && (
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={() => navigate(`/auctions/${auction.id}/live`)}
-                        className="flex-1"
-                      >
-                        <Play className="w-4 h-4 mr-2" />
-                        Join Live
-                      </Button>
+                      <>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => navigate(`/auctions/${auction.id}/live`)}
+                          className="flex-1"
+                        >
+                          <Play className="w-4 h-4 mr-2" />
+                          Join Live
+                        </Button>
+                        {canManageAuctions && (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => navigate(`/auctions/${auction.id}/admin`)}
+                            className="bg-purple-600 hover:bg-purple-700"
+                          >
+                            <Shield className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </>
                     )}
-                    {canManageAuctions && (
+                    {canManageAuctions && auction.status !== 'active' && (
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => navigate(`/auctions/${auction.id}/configure`)}
-                        className={auction.status === 'active' ? '' : 'flex-1'}
+                        className="flex-1"
                       >
                         <Settings className="w-4 h-4 mr-2" />
                         Configure

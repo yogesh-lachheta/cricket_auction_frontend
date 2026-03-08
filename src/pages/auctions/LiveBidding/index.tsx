@@ -1,14 +1,49 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { auctionService, bidService, teamService } from '@api/services';
-import type { Auction, Bid, Team } from '@api/types';
-import { Button } from '@shared/components/Button';
-import { Badge } from '@shared/components/Badge';
-import { Input } from '@shared/components/Input';
-import { Select } from '@shared/components/Select';
-import { useWebSocket } from '@shared/hooks/useWebSocket';
+import { useQuery } from '@tanstack/react-query';
+import { auctionService, teamService, playerService } from '@api/services';
+import type { Auction, Team, Player } from '@api/types';
+import { Button, Badge, Input } from '@shared/components';
+import { useAuctionWebSocket } from '@shared/hooks/useAuctionWebSocket';
 import { useAppSelector } from '@shared/hooks/redux';
 import toast from 'react-hot-toast';
+
+// Type definitions
+interface BidData {
+  id: number;
+  auction_id: number;
+  player_id: number;
+  team_id: number;
+  bid_amount: number;
+  is_winning_bid: boolean;
+  created_at: string;
+  team?: {
+    id: number;
+    name: string;
+    short_name: string;
+  };
+  player?: {
+    id: number;
+    name: string;
+    role: string;
+  };
+}
+
+interface PlayerSoldData {
+  player_id: number;
+  player_name: string;
+  team_id: number;
+  team_name: string;
+  final_price: number;
+}
+
+interface BudgetUpdateData {
+  team_id: number;
+  remaining_budget: number;
+  current_players: number;
+}
+import { Wifi, WifiOff, Gavel, TrendingUp, Users } from 'lucide-react';
+import AppLayout from '@shared/layout/AppLayout';
 
 export const LiveBidding = () => {
   const navigate = useNavigate();
@@ -16,393 +51,481 @@ export const LiveBidding = () => {
   const { user } = useAppSelector((state) => state.auth);
 
   const [auction, setAuction] = useState<Auction | null>(null);
-  const [bids, setBids] = useState<Bid[]>([]);
+  const [currentPlayer, setCurrentPlayer] = useState<Player | null>(null);
+  const [bids, setBids] = useState<BidData[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
-  const [myTeams, setMyTeams] = useState<Team[]>([]);
-  const [selectedTeamId, setSelectedTeamId] = useState<string>('');
+  const [myTeam, setMyTeam] = useState<Team | null>(null);
   const [bidAmount, setBidAmount] = useState<number>(0);
-  const [loading, setLoading] = useState(true);
   const [bidLoading, setBidLoading] = useState(false);
 
-  // WebSocket connection
-  const { isConnected, lastMessage } = useWebSocket();
+  // Fetch auction data
+  const { data: auctionData, isLoading: auctionLoading } = useQuery({
+    queryKey: ['auction', id],
+    queryFn: async () => {
+      const data = await auctionService.getAuctionById(Number(id));
+      setAuction(data);
+      return data;
+    },
+    enabled: !!id,
+    refetchInterval: 10000 // Refetch every 10 seconds
+  });
 
-  // Fetch initial data
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const [auctionData, teamsData] = await Promise.all([
-        auctionService.getAuctionById(Number(id)),
-        teamService.getTeams(0, 100),
-      ]);
+  // Fetch teams
+  const { data: teamsData, refetch: refetchTeams } = useQuery({
+    queryKey: ['teams-auction', id],
+    queryFn: async () => {
+      const data = await teamService.getTeams(0, 100);
+      setTeams(data);
 
-      setAuction(auctionData);
-      setTeams(teamsData.items);
-
-      // Filter user's teams
+      // Find user's team
       if (user) {
-        const userTeams = teamsData.items.filter((t) => t.owner_id === user.id);
-        setMyTeams(userTeams);
-        if (userTeams.length > 0) {
-          setSelectedTeamId(String(userTeams[0].id));
-        }
+        const userTeam = data.find((t: Team) => t.user_id === user.id);
+        setMyTeam(userTeam || null);
       }
 
-      // Fetch bids if current player exists
-      if (auctionData.current_player_id) {
-        const bidsData = await bidService.getBidsByPlayer(auctionData.current_player_id);
-        setBids(bidsData);
+      return data;
+    },
+    enabled: !!id
+  });
 
-        // Set initial bid amount (base price or highest bid + increment)
-        const highestBid = bidsData.length > 0 ? Math.max(...bidsData.map((b) => b.amount)) : 0;
-        const basePrice = auctionData.current_player?.base_price || 0;
-        setBidAmount(Math.max(highestBid + 50000, basePrice));
+  // Fetch current player
+  const { data: playerData } = useQuery({
+    queryKey: ['current-player', auction?.current_player_id],
+    queryFn: async () => {
+      if (!auction?.current_player_id) return null;
+      const data = await playerService.getPlayerById(auction.current_player_id);
+      setCurrentPlayer(data);
+
+      // Set initial bid amount
+      const basePrice = data.base_price || 0;
+      setBidAmount(basePrice);
+
+      return data;
+    },
+    enabled: !!auction?.current_player_id
+  });
+
+  // WebSocket connection
+  const { isConnected, placeBid } = useAuctionWebSocket({
+    auctionId: Number(id),
+    enabled: true,
+    onConnected: () => {
+      toast.success('Connected to live auction');
+    },
+    onDisconnected: () => {
+      toast.error('Disconnected from auction');
+    },
+    onNewBid: (data: BidData) => {
+      console.log('New bid received:', data);
+      // Add bid to history
+      setBids((prev) => [data, ...prev]);
+
+      // Update bid amount to be higher than current
+      if (data.bid_amount) {
+        setBidAmount(data.bid_amount + 500000); // +50 lakh
       }
-    } catch (error) {
-      console.error('Error fetching auction data:', error);
-      toast.error('Failed to load auction');
-      navigate('/auctions');
-    } finally {
-      setLoading(false);
+
+      // Refetch teams to update budgets
+      refetchTeams();
+    },
+    onBidPlaced: (data: BidData) => {
+      console.log('Your bid placed:', data);
+      toast.success(`Bid placed: ₹${formatCurrency(data.bid_amount)}`);
+      setBids((prev) => [data, ...prev]);
+      refetchTeams();
+    },
+    onPlayerSold: (data: PlayerSoldData) => {
+      toast.success(`${data.player_name} sold to ${data.team_name} for ₹${formatCurrency(data.final_price)}!`, {
+        duration: 5000
+      });
+      // Clear bids and wait for next player
+      setBids([]);
+      setCurrentPlayer(null);
+      refetchTeams();
+    },
+    onPlayerUnsold: (data) => {
+      toast(`${data.player_name} went unsold`, {
+        icon: '🚫'
+      });
+      setBids([]);
+      setCurrentPlayer(null);
+    },
+    onBudgetUpdate: (data: BudgetUpdateData) => {
+      // Update team in local state
+      setTeams(prev => prev.map(t =>
+        t.id === data.team_id
+          ? { ...t, remaining_budget: data.remaining_budget, current_players: data.current_players }
+          : t
+      ));
+
+      // Update myTeam if it's the updated team
+      if (myTeam && myTeam.id === data.team_id) {
+        setMyTeam({ ...myTeam, remaining_budget: data.remaining_budget, current_players: data.current_players });
+      }
+    },
+    onError: (error) => {
+      toast.error(`WebSocket error: ${error}`);
     }
-  };
-
-  useEffect(() => {
-    if (id) {
-      fetchData();
-    }
-  }, [id]);
-
-  // Handle WebSocket messages
-  useEffect(() => {
-    if (!lastMessage) return;
-
-    switch (lastMessage.type) {
-      case 'BID_PLACED':
-        // Add new bid to the list
-        const newBid: Bid = lastMessage.data;
-        setBids((prev) => [newBid, ...prev]);
-
-        // Update bid amount
-        setBidAmount(newBid.amount + 50000);
-
-        // Refresh teams to update purse
-        teamService.getTeams(0, 100).then((data) => setTeams(data.items));
-        break;
-
-      case 'PLAYER_SOLD':
-        toast.success(`${lastMessage.data.playerName} sold for ₹${lastMessage.data.amount}!`);
-        // Refresh auction data
-        fetchData();
-        break;
-
-      case 'AUCTION_UPDATED':
-        // Refresh auction data when current player changes
-        fetchData();
-        break;
-
-      case 'AUCTION_ENDED':
-        toast('Auction has ended', {
-          icon: 'ℹ️',
-        });
-        navigate('/auctions');
-        break;
-    }
-  }, [lastMessage]);
+  });
 
   const handlePlaceBid = async () => {
-    if (!auction?.current_player_id || !selectedTeamId) {
-      toast.error('Please select a team');
+    if (!currentPlayer || !myTeam) {
+      toast.error('Cannot place bid at this time');
       return;
     }
 
-    const selectedTeam = teams.find((t) => t.id === Number(selectedTeamId));
-    if (!selectedTeam) return;
-
-    // Validate purse
-    if (bidAmount > selectedTeam.purse_remaining) {
-      toast.error('Insufficient purse amount!');
+    // Validate budget
+    if (bidAmount > myTeam.remaining_budget) {
+      toast.error(`Insufficient budget! You have ₹${formatCurrency(myTeam.remaining_budget)} remaining`);
       return;
     }
 
-    // Validate bid amount
-    const highestBid = bids.length > 0 ? Math.max(...bids.map((b) => b.amount)) : 0;
-    const basePrice = auction.current_player.base_price;
-
-    if (bidAmount < basePrice) {
-      toast.error(`Bid must be at least ₹${basePrice.toLocaleString('en-IN')}`);
+    // Validate minimum increment
+    if (bidAmount % 500000 !== 0) {
+      toast.error('Bid amount must be in multiples of ₹50 lakh');
       return;
     }
 
+    // Validate against current highest bid
+    const highestBid = bids.length > 0 ? bids[0].bid_amount : currentPlayer.base_price;
     if (bidAmount <= highestBid) {
-      toast.error(`Bid must be higher than current bid of ₹${highestBid.toLocaleString('en-IN')}`);
+      toast.error(`Bid must be higher than ₹${formatCurrency(highestBid)}`);
       return;
     }
 
     try {
       setBidLoading(true);
-      await bidService.placeBid({
-        auction_id: Number(id),
-        player_id: auction.current_player_id,
-        team_id: Number(selectedTeamId),
-        amount: bidAmount,
-      });
-
-      toast.success('Bid placed successfully!');
+      placeBid(currentPlayer.id, myTeam.id, bidAmount);
     } catch (error: any) {
       console.error('Error placing bid:', error);
-      toast.error(error.response?.data?.detail || 'Failed to place bid');
+      toast.error(error?.message || 'Failed to place bid');
     } finally {
       setBidLoading(false);
     }
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0,
-    }).format(amount);
+    if (amount >= 10000000) {
+      const crores = amount / 10000000;
+      return `${crores.toFixed(crores % 1 === 0 ? 0 : 1)} cr`;
+    } else if (amount >= 100000) {
+      const lakhs = amount / 100000;
+      return `${lakhs.toFixed(lakhs % 1 === 0 ? 0 : 1)} lakh`;
+    } else {
+      return `${(amount / 1000).toFixed(0)}k`;
+    }
   };
 
   const formatTime = (dateString: string) => {
-    return new Date(dateString).toLocaleTimeString('en-IN');
+    return new Date(dateString).toLocaleTimeString('en-IN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
   };
 
-  if (loading) {
+  if (auctionLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg">Loading live auction...</div>
-      </div>
+      <AppLayout>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-lg text-text-main">Loading live auction...</div>
+        </div>
+      </AppLayout>
     );
   }
 
   if (!auction || auction.status !== 'active') {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <p className="text-lg mb-4">This auction is not active</p>
-          <Button onClick={() => navigate('/auctions')}>
-            Back to Auctions
-          </Button>
+      <AppLayout>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <p className="text-lg mb-4 text-text-main">This auction is not active</p>
+            <Button onClick={() => navigate('/auctions')}>
+              Back to Auctions
+            </Button>
+          </div>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
-  const currentPlayer = auction.current_player;
   const highestBid = bids.length > 0 ? bids[0] : null;
-  const teamOptions = myTeams.map((team) => ({
-    value: String(team.id),
-    label: `${team.name} (${formatCurrency(team.purse_remaining)})`,
-  }));
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold">{auction.name}</h1>
-          <div className="flex items-center gap-2 mt-1">
-            <Badge variant="success">LIVE</Badge>
-            {isConnected ? (
-              <Badge variant="success">Connected</Badge>
-            ) : (
-              <Badge variant="warning">Connecting...</Badge>
-            )}
+    <AppLayout>
+      <div className="min-h-screen bg-background-light">
+        {/* Sticky Header */}
+        <div className="sticky top-0 z-10 bg-white border-b border-border-light shadow-soft">
+          <div className="container mx-auto px-6 py-4">
+            <div className="flex justify-between items-center">
+              <div>
+                <h1 className="text-2xl font-bold text-text-main flex items-center gap-3">
+                  <Gavel className="w-6 h-6 text-primary" />
+                  {auction.title}
+                </h1>
+                <div className="flex items-center gap-2 mt-2">
+                  <Badge variant="default" className="bg-green-500">
+                    LIVE
+                  </Badge>
+                  {isConnected ? (
+                    <Badge variant="default" className="bg-blue-500 flex items-center gap-1">
+                      <Wifi className="w-3 h-3" />
+                      Connected
+                    </Badge>
+                  ) : (
+                    <Badge variant="destructive" className="flex items-center gap-1">
+                      <WifiOff className="w-3 h-3" />
+                      Connecting...
+                    </Badge>
+                  )}
+                </div>
+              </div>
+              <Button variant="outline" onClick={() => navigate('/auctions')}>
+                Exit Auction
+              </Button>
+            </div>
           </div>
         </div>
-        <Button variant="outline" onClick={() => navigate('/auctions')}>
-          Exit
-        </Button>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Content - Current Player */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Current Player Card */}
-          {currentPlayer ? (
-            <div className="bg-card border border-border rounded-lg p-6">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h2 className="text-2xl font-bold">{currentPlayer.name}</h2>
-                  <p className="text-muted-foreground">{currentPlayer.country}</p>
-                </div>
-                <Badge variant="default">{currentPlayer.role}</Badge>
-              </div>
+        <div className="container mx-auto px-6 py-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Main Content - Current Player & Bidding */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Current Player Card */}
+              {currentPlayer ? (
+                <div className="bg-white border border-border-light rounded-2xl p-6 shadow-soft">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <h2 className="text-3xl font-bold text-text-main">{currentPlayer.name}</h2>
+                      <p className="text-text-muted mt-1">{currentPlayer.country}</p>
+                    </div>
+                    <Badge variant="default" className="text-base px-4 py-1">
+                      {currentPlayer.role}
+                    </Badge>
+                  </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <div>
-                  <p className="text-sm text-muted-foreground">Age</p>
-                  <p className="font-semibold">{currentPlayer.age}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Batting</p>
-                  <p className="font-semibold text-sm">{currentPlayer.batting_style}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Bowling</p>
-                  <p className="font-semibold text-sm">{currentPlayer.bowling_style}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Base Price</p>
-                  <p className="font-semibold">{formatCurrency(currentPlayer.base_price)}</p>
-                </div>
-              </div>
+                  {/* Player Stats */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-background-light rounded-xl">
+                    <div>
+                      <p className="text-sm text-text-muted mb-1">Age</p>
+                      <p className="font-semibold text-text-main">{currentPlayer.age}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-text-muted mb-1">Batting</p>
+                      <p className="font-semibold text-text-main text-sm">{currentPlayer.batting_style}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-text-muted mb-1">Bowling</p>
+                      <p className="font-semibold text-text-main text-sm">{currentPlayer.bowling_style}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-text-muted mb-1">Base Price</p>
+                      <p className="font-semibold text-text-main">₹{formatCurrency(currentPlayer.base_price)}</p>
+                    </div>
+                  </div>
 
-              {/* Current Bid */}
-              <div className="bg-primary/10 border border-primary rounded-lg p-4 mb-6">
-                <p className="text-sm text-muted-foreground mb-1">Current Highest Bid</p>
-                <p className="text-3xl font-bold text-primary">
-                  {highestBid ? formatCurrency(highestBid.amount) : formatCurrency(currentPlayer.base_price)}
-                </p>
-                {highestBid && highestBid.team && (
-                  <p className="text-sm mt-1">by {highestBid.team.name}</p>
+                  {/* Current Highest Bid */}
+                  <div className="bg-gradient-to-r from-primary/10 to-primary/5 border-2 border-primary rounded-xl p-6 mb-6">
+                    <div className="flex items-center gap-2 mb-2">
+                      <TrendingUp className="w-5 h-5 text-primary" />
+                      <p className="text-sm font-medium text-text-muted">Current Highest Bid</p>
+                    </div>
+                    <p className="text-4xl font-bold text-primary">
+                      ₹{highestBid ? formatCurrency(highestBid.bid_amount) : formatCurrency(currentPlayer.base_price)}
+                    </p>
+                    {highestBid && highestBid.team && (
+                      <p className="text-sm mt-2 text-text-main">
+                        by <span className="font-semibold">{highestBid.team.name}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Bidding Controls */}
+                  {myTeam ? (
+                    <div className="space-y-4 p-4 bg-background-light rounded-xl">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="text-sm text-text-muted">Your Team</p>
+                          <p className="font-bold text-text-main">{myTeam.name}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm text-text-muted">Remaining Budget</p>
+                          <p className="font-bold text-green-600">₹{formatCurrency(myTeam.remaining_budget)}</p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-sm font-medium text-text-main mb-2 block">
+                          Your Bid Amount
+                        </label>
+                        <Input
+                          type="number"
+                          value={bidAmount}
+                          onChange={(e) => setBidAmount(Number(e.target.value))}
+                          step={500000}
+                          min={currentPlayer.base_price}
+                          className="text-lg font-bold"
+                        />
+                      </div>
+
+                      {/* Quick Increment Buttons */}
+                      <div className="grid grid-cols-4 gap-2">
+                        <Button
+                          onClick={() => setBidAmount((prev) => prev + 500000)}
+                          variant="outline"
+                          size="sm"
+                        >
+                          +50L
+                        </Button>
+                        <Button
+                          onClick={() => setBidAmount((prev) => prev + 1000000)}
+                          variant="outline"
+                          size="sm"
+                        >
+                          +1Cr
+                        </Button>
+                        <Button
+                          onClick={() => setBidAmount((prev) => prev + 2000000)}
+                          variant="outline"
+                          size="sm"
+                        >
+                          +2Cr
+                        </Button>
+                        <Button
+                          onClick={() => setBidAmount((prev) => prev + 5000000)}
+                          variant="outline"
+                          size="sm"
+                        >
+                          +5Cr
+                        </Button>
+                      </div>
+
+                      <Button
+                        onClick={handlePlaceBid}
+                        loading={bidLoading}
+                        disabled={bidLoading || !isConnected}
+                        size="lg"
+                        className="w-full text-lg"
+                      >
+                        Place Bid - ₹{formatCurrency(bidAmount)}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 bg-background-light rounded-xl">
+                      <p className="text-text-muted mb-4">
+                        You need to create a team to participate in bidding
+                      </p>
+                      <Button
+                        variant="outline"
+                        onClick={() => navigate('/teams/create')}
+                      >
+                        Create Team
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-white border border-border-light rounded-2xl p-12 text-center shadow-soft">
+                  <Gavel className="w-16 h-16 text-text-muted mx-auto mb-4" />
+                  <p className="text-lg text-text-muted">
+                    Waiting for auctioneer to select a player...
+                  </p>
+                </div>
+              )}
+
+              {/* Bid History */}
+              <div className="bg-white border border-border-light rounded-2xl p-6 shadow-soft">
+                <h3 className="text-xl font-bold text-text-main mb-4 flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5" />
+                  Bidding History
+                </h3>
+                {bids.length === 0 ? (
+                  <p className="text-text-muted text-center py-8">No bids yet. Be the first to bid!</p>
+                ) : (
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {bids.map((bid, index) => (
+                      <div
+                        key={bid.id}
+                        className={`flex justify-between items-center p-4 rounded-xl transition-all ${
+                          index === 0
+                            ? 'bg-gradient-to-r from-green-50 to-green-100 border-2 border-green-500'
+                            : 'bg-background-light'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <Badge
+                            variant={index === 0 ? 'default' : 'secondary'}
+                            className={index === 0 ? 'bg-green-500' : ''}
+                          >
+                            {index === 0 ? 'Winning' : `#${index + 1}`}
+                          </Badge>
+                          <div>
+                            <p className="font-semibold text-text-main">{bid.team?.name || 'Unknown Team'}</p>
+                            <p className="text-xs text-text-muted">
+                              {formatTime(bid.created_at)}
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-xl font-bold text-primary">₹{formatCurrency(bid.bid_amount)}</p>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
-
-              {/* Bid Form */}
-              {myTeams.length > 0 && (
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium mb-2 block">Your Team</label>
-                    <Select
-                      value={selectedTeamId}
-                      onValueChange={setSelectedTeamId}
-                      options={teamOptions}
-                      placeholder="Select your team"
-                    />
-                  </div>
-
-                  <Input
-                    type="number"
-                    label="Bid Amount (₹)"
-                    value={bidAmount}
-                    onChange={(e) => setBidAmount(Number(e.target.value))}
-                    step={50000}
-                    min={currentPlayer.base_price}
-                  />
-
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={() => setBidAmount((prev) => prev + 50000)}
-                      variant="outline"
-                      size="sm"
-                    >
-                      +50K
-                    </Button>
-                    <Button
-                      onClick={() => setBidAmount((prev) => prev + 100000)}
-                      variant="outline"
-                      size="sm"
-                    >
-                      +1L
-                    </Button>
-                    <Button
-                      onClick={() => setBidAmount((prev) => prev + 500000)}
-                      variant="outline"
-                      size="sm"
-                    >
-                      +5L
-                    </Button>
-                  </div>
-
-                  <Button
-                    onClick={handlePlaceBid}
-                    loading={bidLoading}
-                    disabled={bidLoading}
-                    size="lg"
-                    className="w-full"
-                  >
-                    Place Bid - {formatCurrency(bidAmount)}
-                  </Button>
-                </div>
-              )}
-
-              {myTeams.length === 0 && (
-                <div className="text-center py-4 bg-muted rounded-lg">
-                  <p className="text-muted-foreground">
-                    You need to create a team to participate in bidding
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => navigate('/teams/create')}
-                    className="mt-2"
-                  >
-                    Create Team
-                  </Button>
-                </div>
-              )}
             </div>
-          ) : (
-            <div className="bg-card border border-border rounded-lg p-12 text-center">
-              <p className="text-lg text-muted-foreground">
-                Waiting for auctioneer to select a player...
-              </p>
-            </div>
-          )}
 
-          {/* Bid History */}
-          <div className="bg-card border border-border rounded-lg p-6">
-            <h3 className="text-xl font-bold mb-4">Bidding History</h3>
-            {bids.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">No bids yet</p>
-            ) : (
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {bids.map((bid, index) => (
-                  <div
-                    key={bid.id}
-                    className="flex justify-between items-center p-3 bg-muted rounded-lg"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Badge variant={index === 0 ? 'success' : 'secondary'}>
-                        {index === 0 ? 'Highest' : `#${index + 1}`}
-                      </Badge>
-                      <div>
-                        <p className="font-semibold">{bid.team?.name || 'Unknown Team'}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatTime(bid.created_at)}
-                        </p>
+            {/* Sidebar - Teams Standings */}
+            <div className="space-y-6">
+              <div className="bg-white border border-border-light rounded-2xl p-6 shadow-soft sticky top-24">
+                <h3 className="text-xl font-bold text-text-main mb-4 flex items-center gap-2">
+                  <Users className="w-5 h-5" />
+                  Teams Standings
+                </h3>
+                <div className="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
+                  {teams.map((team) => {
+                    const isMyTeam = myTeam?.id === team.id;
+                    return (
+                      <div
+                        key={team.id}
+                        className={`p-4 rounded-xl transition-all ${
+                          isMyTeam
+                            ? 'bg-gradient-to-r from-primary/10 to-primary/5 border-2 border-primary'
+                            : 'border border-border-light bg-background-light'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <p className="font-bold text-text-main">{team.name}</p>
+                          {isMyTeam && <Badge variant="default">You</Badge>}
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-text-muted">Budget:</span>
+                            <span className="font-semibold text-green-600">
+                              ₹{formatCurrency(team.remaining_budget)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-text-muted">Players:</span>
+                            <span className="font-semibold text-text-main">
+                              {team.current_players} / {team.max_players}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-text-muted">Overseas:</span>
+                            <span className="font-semibold text-text-main">
+                              {team.overseas_count}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <p className="text-lg font-bold">{formatCurrency(bid.amount)}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Sidebar - Teams */}
-        <div className="space-y-6">
-          <div className="bg-card border border-border rounded-lg p-6">
-            <h3 className="text-xl font-bold mb-4">Teams</h3>
-            <div className="space-y-3">
-              {teams.map((team) => (
-                <div
-                  key={team.id}
-                  className="p-3 border border-border rounded-lg"
-                >
-                  <p className="font-semibold">{team.name}</p>
-                  <div className="flex justify-between text-sm mt-1">
-                    <span className="text-muted-foreground">Purse:</span>
-                    <span className="font-medium">
-                      {formatCurrency(team.purse_remaining)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Players:</span>
-                    <span className="font-medium">
-                      {team.players?.length || 0} / {team.max_players}
-                    </span>
-                  </div>
+                    );
+                  })}
                 </div>
-              ))}
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </AppLayout>
   );
 };
