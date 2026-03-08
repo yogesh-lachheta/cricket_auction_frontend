@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { teamService } from '@api/services';
 import type { Team } from '@api/types';
-import { Button, Badge, PageHeader } from '@shared/components';
+import { Button, Badge, PageHeader, Tooltip, Avatar } from '@shared/components';
 import toast from 'react-hot-toast';
 import { usePermissions } from '@shared/hooks';
 import { useAppSelector } from '@shared/hooks/redux';
@@ -13,6 +13,7 @@ import {
   Trash2,
   Eye,
   DollarSign,
+  Edit,
 } from 'lucide-react';
 
 export const TeamList = () => {
@@ -25,8 +26,7 @@ export const TeamList = () => {
   const { data: teams = [], isLoading, refetch } = useQuery({
     queryKey: ['teams'],
     queryFn: async () => {
-      const response = await teamService.getTeams(0, 100);
-      return response.items;
+      return await teamService.getTeams(0, 100);
     },
     onError: (error) => {
       console.error('Error fetching teams:', error);
@@ -89,29 +89,42 @@ export const TeamList = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {teams.map((team, index) => {
-              const isMyTeam = user && team.owner_id === user.id;
-              const playersCount = team.players?.length || 0;
+              const isMyTeam = user && team.user_id === user.id;
+              const playersCount = team.current_players;
 
               return (
                 <div
                   key={team.id}
-                  className="bg-white rounded-2xl p-6 shadow-soft hover:shadow-md transition-all duration-200 animate-cardEntrance"
+                  className="bg-white rounded-2xl p-6 shadow-soft hover:shadow-lg hover:-translate-y-1 transition-all duration-300 animate-cardEntrance border border-transparent hover:border-primary/20"
                   style={{ animationDelay: `${index * 50}ms` }}
                 >
-                  <div className="flex justify-between items-start mb-4">
+                  <div className="flex items-start gap-4 mb-4">
+                    <Avatar
+                      src={team.logo_url}
+                      alt={team.name}
+                      fallbackText={team.short_name || team.name}
+                      size="lg"
+                    />
                     <div className="flex-1">
-                      <h3 className="text-xl font-semibold text-text-main">
-                        {team.name}
-                      </h3>
-                      {team.owner && (
-                        <p className="text-sm text-text-muted">
-                          Owner: {team.owner.full_name}
-                        </p>
-                      )}
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="text-xl font-semibold text-text-main">
+                            {team.name}
+                          </h3>
+                          <p className="text-sm font-medium text-primary">
+                            {team.short_name}
+                          </p>
+                          {team.owner_name && (
+                            <p className="text-sm text-text-muted">
+                              Owner: {team.owner_name}
+                            </p>
+                          )}
+                        </div>
+                        {isMyTeam && (
+                          <Badge variant="default">My Team</Badge>
+                        )}
+                      </div>
                     </div>
-                    {isMyTeam && (
-                      <Badge variant="default">My Team</Badge>
-                    )}
                   </div>
 
                   <div className="space-y-3 mb-4">
@@ -121,7 +134,7 @@ export const TeamList = () => {
                         Purse Remaining:
                       </span>
                       <span className="font-bold text-primary">
-                        {formatCurrency(team.purse_remaining)}
+                        {formatCurrency(team.remaining_budget)}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm mb-1">
@@ -140,24 +153,37 @@ export const TeamList = () => {
                     </div>
                   </div>
 
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => navigate(`/teams/${team.id}`)}
-                      className="flex-1"
-                    >
-                      <Eye className="w-4 h-4 mr-2" />
-                      View
-                    </Button>
-                    {(canManageTeams || isMyTeam) && (
+                  <div className="flex gap-2 justify-end">
+                    <Tooltip content="View Team" position="top">
                       <Button
-                        variant="destructive"
+                        variant="outline"
                         size="sm"
-                        onClick={() => handleDelete(team.id)}
+                        onClick={() => navigate(`/teams/${team.id}`)}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Eye className="w-4 h-4" />
                       </Button>
+                    </Tooltip>
+                    {(canManageTeams || isMyTeam) && (
+                      <>
+                        <Tooltip content="Edit Team" position="top">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate(`/teams/${team.id}/edit`)}
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                        </Tooltip>
+                        <Tooltip content="Delete Team" position="top">
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleDelete(team.id)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </Tooltip>
+                      </>
                     )}
                   </div>
                 </div>

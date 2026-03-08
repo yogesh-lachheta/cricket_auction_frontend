@@ -1,14 +1,15 @@
-import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Formik, Form, Field } from 'formik';
 import * as Yup from 'yup';
 import { teamService } from '@api/services';
-import type { CreateTeamRequest } from '@api/types';
+import type { UpdateTeamRequest } from '@api/types';
 import { Input, Button, PageHeader, FileUpload } from '@shared/components';
 import { useAppSelector } from '@shared/hooks/redux';
 import toast from 'react-hot-toast';
 import AppLayout from '@shared/layout/AppLayout';
 import { generateBreadcrumbs } from '@shared/utils/breadcrumbHelpers';
+import { Loader2 } from 'lucide-react';
 
 const validationSchema = Yup.object({
   name: Yup.string()
@@ -16,82 +17,103 @@ const validationSchema = Yup.object({
     .min(3, 'Team name must be at least 3 characters')
     .max(200, 'Team name must be less than 200 characters'),
   short_name: Yup.string()
-    .required('Short name is required')
     .min(2, 'Short name must be at least 2 characters')
     .max(50, 'Short name must be less than 50 characters'),
-  auction_id: Yup.number()
-    .required('Auction ID is required')
-    .min(1, 'Please enter a valid auction ID'),
-  total_budget: Yup.number()
-    .required('Total budget is required')
-    .min(1, 'Budget must be positive')
-    .max(1000000000, 'Budget cannot exceed 100 crore'),
+  owner_name: Yup.string().max(200, 'Owner name must be less than 200 characters'),
+  logo_url: Yup.string(),
   max_players: Yup.number()
     .min(11, 'Must allow at least 11 players')
     .max(25, 'Maximum 25 players allowed'),
-  owner_name: Yup.string().max(200, 'Owner name must be less than 200 characters'),
-  logo_url: Yup.string(),
 });
 
-export const CreateTeam = () => {
+export const EditTeam = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { id } = useParams<{ id: string }>();
   const { user } = useAppSelector((state) => state.auth);
   const [loading, setLoading] = useState(false);
+  const [fetchingTeam, setFetchingTeam] = useState(true);
+  const [initialValues, setInitialValues] = useState<UpdateTeamRequest>({
+    name: '',
+    short_name: '',
+    owner_name: '',
+    logo_url: '',
+    max_players: 15,
+  });
 
   const breadcrumbs = generateBreadcrumbs(location.pathname);
+
+  useEffect(() => {
+    if (!id) {
+      navigate('/teams');
+      return;
+    }
+
+    const fetchTeam = async () => {
+      try {
+        setFetchingTeam(true);
+        const team = await teamService.getTeamById(Number(id));
+        setInitialValues({
+          name: team.name,
+          short_name: team.short_name,
+          owner_name: team.owner_name || '',
+          logo_url: team.logo_url || '',
+          max_players: team.max_players,
+        });
+      } catch (error) {
+        console.error('Error fetching team:', error);
+        toast.error('Failed to load team details');
+        navigate('/teams');
+      } finally {
+        setFetchingTeam(false);
+      }
+    };
+
+    fetchTeam();
+  }, [id, navigate]);
 
   if (!user) {
     navigate('/login');
     return null;
   }
 
-  const initialValues: CreateTeamRequest = {
-    name: '',
-    short_name: '',
-    auction_id: 1, // Default auction ID - user can change
-    total_budget: 10000000, // Default 1 Crore
-    max_players: 15,
-    owner_name: user.full_name,
-    logo_url: '',
-    user_id: user.id,
-  };
-
-  const handleSubmit = async (values: CreateTeamRequest) => {
+  const handleSubmit = async (values: UpdateTeamRequest) => {
     try {
       setLoading(true);
-      await teamService.createTeam(values);
-      toast.success('Team created successfully!');
+      await teamService.updateTeam(Number(id), values);
+      toast.success('Team updated successfully!');
       navigate('/teams');
     } catch (error) {
-      console.error('Error creating team:', error);
-      toast.error('Failed to create team');
+      console.error('Error updating team:', error);
+      toast.error('Failed to update team');
     } finally {
       setLoading(false);
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
+  if (fetchingTeam) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
-      <PageHeader title="Create New Team" breadcrumbs={breadcrumbs} />
+      <PageHeader title="Edit Team" breadcrumbs={breadcrumbs} />
 
       <div className="bg-white border border-border-light rounded-2xl p-6 shadow-soft">
-
         <Formik
           initialValues={initialValues}
           validationSchema={validationSchema}
           onSubmit={handleSubmit}
+          enableReinitialize
         >
           {({ errors, touched, values }) => (
-            <Form id="team-form" className="space-y-4">
+            <Form id="team-edit-form" className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Field name="name">
                   {({ field }: any) => (
@@ -116,18 +138,6 @@ export const CreateTeam = () => {
                 </Field>
               </div>
 
-              <Field name="auction_id">
-                {({ field }: any) => (
-                  <Input
-                    {...field}
-                    type="number"
-                    label="Auction ID"
-                    placeholder="Enter auction ID"
-                    error={touched.auction_id && errors.auction_id}
-                  />
-                )}
-              </Field>
-
               <Field name="owner_name">
                 {({ field }: any) => (
                   <Input
@@ -136,23 +146,6 @@ export const CreateTeam = () => {
                     placeholder="Enter owner name"
                     error={touched.owner_name && errors.owner_name}
                   />
-                )}
-              </Field>
-
-              <Field name="total_budget">
-                {({ field }: any) => (
-                  <div>
-                    <Input
-                      {...field}
-                      type="number"
-                      label="Total Budget (₹)"
-                      placeholder="Enter total budget"
-                      error={touched.total_budget && errors.total_budget}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Current: {formatCurrency(values.total_budget || 0)}
-                    </p>
-                  </div>
                 )}
               </Field>
 
@@ -192,18 +185,8 @@ export const CreateTeam = () => {
                     <span className="font-medium">{values.short_name || '-'}</span>
                   </p>
                   <p>
-                    <span className="text-muted-foreground">Auction ID:</span>{' '}
-                    <span className="font-medium">{values.auction_id || '-'}</span>
-                  </p>
-                  <p>
                     <span className="text-muted-foreground">Owner:</span>{' '}
-                    <span className="font-medium">{values.owner_name || user.full_name}</span>
-                  </p>
-                  <p>
-                    <span className="text-muted-foreground">Total Budget:</span>{' '}
-                    <span className="font-medium">
-                      {formatCurrency(values.total_budget || 0)}
-                    </span>
+                    <span className="font-medium">{values.owner_name || '-'}</span>
                   </p>
                   <p>
                     <span className="text-muted-foreground">Max Players:</span>{' '}
@@ -227,11 +210,11 @@ export const CreateTeam = () => {
         </Button>
         <Button
           type="submit"
-          form="team-form"
+          form="team-edit-form"
           loading={loading}
           disabled={loading}
         >
-          Create Team
+          Update Team
         </Button>
       </div>
     </AppLayout>

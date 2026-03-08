@@ -27,7 +27,7 @@ import ProtectedRoute from '@shared/components/ProtectedRoute';
 import { PlayerList, CreatePlayer, EditPlayer } from '@pages/players';
 
 // Team Pages
-import { TeamList, CreateTeam, ViewTeam } from '@pages/teams';
+import { TeamList, CreateTeam, EditTeam, ViewTeam } from '@pages/teams';
 
 // Auction Pages
 import { AuctionList, CreateAuction, ConfigureAuction, LiveBidding } from '@pages/auctions';
@@ -125,6 +125,14 @@ function App() {
           element={
             <ProtectedRoute requiredRoles={['team_owner', 'admin']}>
               <CreateTeam />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/teams/:id/edit"
+          element={
+            <ProtectedRoute requiredRoles={['team_owner', 'admin']}>
+              <EditTeam />
             </ProtectedRoute>
           }
         />

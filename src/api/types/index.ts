@@ -115,10 +115,18 @@ export interface UpdatePlayerRequest {
 export interface Team {
   id: number;
   name: string;
-  owner_id: number;
-  owner?: User;
-  purse_remaining: number;
+  short_name: string;
+  owner_name: string | null;
+  logo_url: string | null;
+  total_budget: number;
+  remaining_budget: number;
+  current_players: number;
+  overseas_count: number;
   max_players: number;
+  auction_id: number;
+  user_id: number | null;
+  is_active: boolean;
+  owner?: User;
   players?: Player[];
   created_at: string;
   updated_at: string;
@@ -126,15 +134,26 @@ export interface Team {
 
 export interface CreateTeamRequest {
   name: string;
-  owner_id: number;
-  purse_remaining: number;
+  short_name: string;
+  auction_id: number;
+  total_budget: number;
+  owner_name?: string;
+  logo_url?: string;
   max_players?: number;
+  user_id?: number;
 }
 
 export interface UpdateTeamRequest {
   name?: string;
-  purse_remaining?: number;
+  short_name?: string;
+  owner_name?: string;
+  logo_url?: string;
+  total_budget?: number;
+  remaining_budget?: number;
+  current_players?: number;
+  overseas_count?: number;
   max_players?: number;
+  is_active?: boolean;
 }
 
 // Auction types

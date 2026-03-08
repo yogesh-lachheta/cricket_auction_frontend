@@ -32,3 +32,9 @@ export type { BreadcrumbProps, BreadcrumbItem } from './Breadcrumb';
 export { UserDropdown } from './UserDropdown';
 
 export { PageHeader } from './PageHeader';
+
+export { Tooltip } from './Tooltip';
+
+export { Avatar } from './Avatar';
+
+export { FileUpload } from './FileUpload';

@@ -8,9 +8,9 @@ import type {
 
 export const teamService = {
   // Get all teams with pagination
-  getTeams: async (skip = 0, limit = 100): Promise<PaginatedResponse<Team>> => {
-    const response = await axiosInstance.get<PaginatedResponse<Team>>(
-      `/teams?skip=${skip}&limit=${limit}`
+  getTeams: async (skip = 0, limit = 100): Promise<Team[]> => {
+    const response = await axiosInstance.get<Team[]>(
+      `/teams/?skip=${skip}&limit=${limit}`
     );
     return response.data;
   },
@@ -23,7 +23,7 @@ export const teamService = {
 
   // Create new team
   createTeam: async (data: CreateTeamRequest): Promise<Team> => {
-    const response = await axiosInstance.post<Team>('/teams', data);
+    const response = await axiosInstance.post<Team>('/teams/', data);
     return response.data;
   },
 
